@@ -21,16 +21,6 @@
     <section class="upload-section" id="uploadSection">
       <form id="analyzeForm">
 
-        <!-- API Key Section -->
-        <div class="apikey-section" id="apikeySection">
-          <h3 class="prefs-title">🔑 Anthropic API Key <span class="optional-tag">required</span></h3>
-          <p class="location-desc">Your key is saved on your device only — never sent anywhere except directly to Anthropic.</p>
-          <div class="apikey-row">
-            <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off" />
-            <button type="button" class="btn-save-key" onclick="saveApiKey()">Save</button>
-          </div>
-          <div id="apiKeyStatus" class="apikey-status"></div>
-        </div>
 
         <div class="upload-grid">
 
@@ -262,73 +252,6 @@
   </footer>
 
   <script>
-    // ===== System Prompt =====
-    const SYSTEM_PROMPT = `You are a nutritionist and meal-prep expert. Your job is to:
-1. Identify all visible ingredients in the fridge photo
-2. Assess the lunchbox size and capacity from the lunchbox photo
-3. Generate practical, balanced lunch meal ideas using ONLY the available ingredients
-
-NUTRITION REQUIREMENTS (mandatory for every meal suggestion):
-- PROTEIN: Must include a clear protein source (meat, eggs, legumes, dairy, tofu, etc.)
-- CARBOHYDRATES: Must include a carb source (bread, rice, pasta, vegetables, fruit, etc.)
-- HEALTHY FAT: Must include healthy fat (olive oil, avocado, nuts, cheese, etc.)
-- NO TRANS FAT: Absolutely no partially hydrogenated oils, margarine, or processed foods containing trans fats
-
-PERSONAL PREFERENCES: You MUST strictly respect the user's stated allergies, dislikes, and preferences.
-- ALLERGIES are hard constraints — never include an allergen even as a trace ingredient
-- DISLIKES should be avoided entirely
-- LIKES should be prioritised where possible
-
-FORMAT your response as JSON with this exact structure:
-{
-  "fridge_ingredients": ["list", "of", "identified", "ingredients"],
-  "lunchbox_capacity": "description of lunchbox size",
-  "meals": [
-    {
-      "name": "Meal Name",
-      "description": "Brief appealing description",
-      "ingredients": ["ingredient 1", "ingredient 2"],
-      "assembly": "Simple step-by-step instructions",
-      "nutrition": {
-        "protein": "what provides protein and estimated amount",
-        "carbs": "what provides carbs and estimated amount",
-        "fat": "what provides healthy fat and estimated amount",
-        "calories": "estimated total calories"
-      },
-      "fits_lunchbox": true,
-      "prep_time": "X minutes"
-    }
-  ],
-  "tips": ["optional tip 1", "optional tip 2"]
-}
-
-Provide 3 meal suggestions. Return JSON only — no markdown, no explanation outside the JSON.`;
-
-    // ===== API Key =====
-    function saveApiKey() {
-      const val = document.getElementById('apiKeyInput').value.trim();
-      if (!val.startsWith('sk-ant-')) {
-        setKeyStatus('❌ Invalid key — must start with sk-ant-', false);
-        return;
-      }
-      localStorage.setItem('anthropicApiKey', val);
-      document.getElementById('apiKeyInput').value = '';
-      setKeyStatus('✅ Key saved', true);
-      updateBtn();
-    }
-
-    function setKeyStatus(msg, ok) {
-      const el = document.getElementById('apiKeyStatus');
-      el.textContent = msg;
-      el.className = 'apikey-status ' + (ok ? 'apikey-ok' : 'apikey-err');
-    }
-
-    // Show saved key status on load
-    window.addEventListener('DOMContentLoaded', () => {
-      const saved = localStorage.getItem('anthropicApiKey');
-      if (saved) setKeyStatus('✅ Key saved', true);
-    });
-
     // ===== Image resize via Canvas =====
     function resizeImage(file, maxSide = 1568, quality = 0.85) {
       return new Promise((resolve, reject) => {
@@ -354,21 +277,6 @@ Provide 3 meal suggestions. Return JSON only — no markdown, no explanation out
         img.onerror = reject;
         img.src = url;
       });
-    }
-
-    // ===== Preferences text =====
-    function buildPreferencesText(allergies, likes, dislikes, brands, country) {
-      const lines = [];
-      if (country.trim()) lines.push(
-        `CUISINE STYLE: I am from / eating in the style of ${country.trim()}. ` +
-        `Please draw inspiration from that country's traditional ingredients, spice profiles, ` +
-        `and typical lunch dishes.`
-      );
-      if (brands.trim()) lines.push(`BRANDS IN MY FRIDGE: ${brands.trim()}.`);
-      if (allergies.trim()) lines.push(`ALLERGIES (MUST avoid completely): ${allergies.trim()}`);
-      if (dislikes.trim()) lines.push(`DISLIKES (please avoid): ${dislikes.trim()}`);
-      if (likes.trim()) lines.push(`LIKES (prioritise if possible): ${likes.trim()}`);
-      return lines.length ? '\n\nMy personal preferences:\n' + lines.join('\n') : '';
     }
 
     // ===== File handling =====
@@ -419,8 +327,7 @@ Provide 3 meal suggestions. Return JSON only — no markdown, no explanation out
     }
 
     function updateBtn() {
-      const hasKey = !!localStorage.getItem('anthropicApiKey');
-      analyzeBtn.disabled = !(chosen.fridge && chosen.lunchbox && hasKey);
+      analyzeBtn.disabled = !(chosen.fridge && chosen.lunchbox);
     }
 
     // ===== Location =====
@@ -471,14 +378,10 @@ Provide 3 meal suggestions. Return JSON only — no markdown, no explanation out
       document.getElementById('countryBadge').hidden = true;
     }
 
-    // ===== Form submit — calls Claude API directly =====
+    // ===== Form submit =====
     document.getElementById('analyzeForm').addEventListener('submit', async e => {
       e.preventDefault();
       dismissError();
-
-      const apiKey = localStorage.getItem('anthropicApiKey');
-      if (!apiKey) { showError('Please save your Anthropic API key first.'); return; }
-
       showLoading();
       animateSteps();
 
@@ -493,57 +396,21 @@ Provide 3 meal suggestions. Return JSON only — no markdown, no explanation out
         const likes     = document.getElementById('likes').value;
         const dislikes  = document.getElementById('dislikes').value;
         const brands    = document.getElementById('brands').value;
-        const prefs     = buildPreferencesText(allergies, likes, dislikes, brands, country);
 
-        const userMessage =
-          'Please analyze both images and generate 3 balanced lunch meal ideas ' +
-          'that I can make with the ingredients in my fridge and that will fit ' +
-          'in my lunchbox. Each meal MUST include protein, carbohydrates, and ' +
-          'healthy fat (no trans fat).' + prefs + '\n\nReturn JSON only.';
-
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetch('/analyze', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 4096,
-            system: SYSTEM_PROMPT,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'text', text: 'Here is a photo of my fridge:' },
-                { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: fridgeB64 } },
-                { type: 'text', text: 'And here is my lunchbox:' },
-                { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: lunchboxB64 } },
-                { type: 'text', text: userMessage },
-              ],
-            }],
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fridgeB64, lunchboxB64, country, allergies, likes, dislikes, brands }),
         });
 
-        const json = await res.json();
+        const data = await res.json();
 
         if (!res.ok) {
-          const msg = json.error?.message || 'API error. Please try again.';
-          if (res.status === 401) showError('Invalid API key. Please check and re-save it.');
-          else if (res.status === 429) showError('Rate limit reached. Please wait and try again.');
-          else if (res.status === 402) showError('Insufficient credits. Add credits at console.anthropic.com.');
-          else showError(msg);
+          showError(data.error || 'Something went wrong. Please try again.');
           hideLoading(); return;
         }
 
-        let resultText = json.content[0].text.trim();
-        if (resultText.startsWith('```')) {
-          const lines = resultText.split('\n');
-          resultText = lines.slice(1, lines[lines.length - 1].trim() === '```' ? -1 : lines.length).join('\n');
-        }
-
-        renderResults(JSON.parse(resultText));
+        renderResults(data.data);
 
       } catch (err) {
         showError('Something went wrong. Please check your connection and try again.');
