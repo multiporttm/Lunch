@@ -590,6 +590,8 @@ details p  { font-size: .86rem; line-height: 1.6; color: var(--muted); margin-to
 .apikey-ok  { color: #1a7a35; }
 .apikey-err { color: #c0392b; }
 
+.pref-brands-spaced { margin-top: .85rem; }
+
 /* ===== Footer ===== */
 footer {
   padding: 2.5rem 1.5rem 1.5rem;
